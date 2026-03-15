@@ -1,23 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Play,
-  Pause,
-  SkipForward,
-  SkipBack,
-  KeyRound,
-  Music,
-  FolderOpen,
-  AlertCircle,
-  Loader2,
-} from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, KeyRound, Music, FolderOpen, AlertCircle, Loader2, Shuffle } from 'lucide-react';
 
 export default function App() {
   // นำ API Key ของคุณมาตั้งเป็นค่าเริ่มต้น
   const DEFAULT_API_KEY = 'AIzaSyCh32717F0Lyz2wBlvDeT6r4SoyBhmVoPQ';
-
-  const [apiKey, setApiKey] = useState(
-    localStorage.getItem('gdrive_api_key') || DEFAULT_API_KEY
-  );
+  
+  const [apiKey, setApiKey] = useState(localStorage.getItem('gdrive_api_key') || DEFAULT_API_KEY);
   const [isKeySaved, setIsKeySaved] = useState(true); // ตั้งเป็น true เพื่อให้ข้ามหน้ากรอกรหัสไปเลย
   const [files, setFiles] = useState([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(-1);
@@ -26,9 +14,10 @@ export default function App() {
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-
+  const [isShuffle, setIsShuffle] = useState(false); // สถานะเปิด/ปิดการสุ่มเพลง
+  
   const audioRef = useRef(null);
-
+  
   // โฟลเดอร์ ID ของคุณที่ให้มา
   const FOLDER_ID = '1hcHe4ey293TD9RQRmxTZmqZNR8zs8A2t';
 
@@ -55,13 +44,13 @@ export default function App() {
       audio.removeEventListener('loadedmetadata', updateDuration);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [currentTrackIndex, files]);
+  }, [currentTrackIndex, files, isShuffle]); // เพิ่ม isShuffle เข้าไปใน dependency
 
   useEffect(() => {
     if (audioRef.current && currentTrackIndex >= 0) {
       if (isPlaying) {
-        audioRef.current.play().catch((e) => {
-          console.error('Autoplay prevented:', e);
+        audioRef.current.play().catch(e => {
+          console.error("Autoplay prevented:", e);
           setIsPlaying(false);
         });
       } else {
@@ -95,24 +84,18 @@ export default function App() {
     try {
       // ค้นหาไฟล์ audio ในโฟลเดอร์
       const query = `'${FOLDER_ID}' in parents and mimeType contains 'audio/'`;
-      const response = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
-          query
-        )}&key=${apiKey}&fields=files(id,name,mimeType)`
-      );
-
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&key=${apiKey}&fields=files(id,name,mimeType)`);
+      
       const data = await response.json();
-
+      
       if (data.error) {
         throw new Error(data.error.message);
       }
-
+      
       if (data.files && data.files.length > 0) {
         setFiles(data.files);
       } else {
-        setError(
-          'ไม่พบไฟล์เสียงในโฟลเดอร์นี้ หรือโฟลเดอร์ไม่ได้เปิดเป็นสาธารณะ'
-        );
+        setError('ไม่พบไฟล์เสียงในโฟลเดอร์นี้ หรือโฟลเดอร์ไม่ได้เปิดเป็นสาธารณะ');
       }
     } catch (err) {
       setError('เกิดข้อผิดพลาด: ' + err.message);
@@ -128,7 +111,12 @@ export default function App() {
 
   const togglePlay = () => {
     if (currentTrackIndex === -1 && files.length > 0) {
-      playTrack(0);
+      if (isShuffle) {
+        const randomIndex = Math.floor(Math.random() * files.length);
+        playTrack(randomIndex);
+      } else {
+        playTrack(0);
+      }
     } else {
       setIsPlaying(!isPlaying);
     }
@@ -136,14 +124,29 @@ export default function App() {
 
   const playNext = () => {
     if (files.length === 0) return;
-    const nextIndex = (currentTrackIndex + 1) % files.length;
+    
+    let nextIndex;
+    if (isShuffle) {
+      // สุ่มเพลงใหม่
+      nextIndex = Math.floor(Math.random() * files.length);
+      // ป้องกันการสุ่มได้เพลงเดิมซ้ำ ถ้ามีเพลงมากกว่า 1 เพลง
+      if (files.length > 1 && nextIndex === currentTrackIndex) {
+        nextIndex = (nextIndex + 1) % files.length;
+      }
+    } else {
+      // เล่นเพลงถัดไปตามปกติ
+      nextIndex = (currentTrackIndex + 1) % files.length;
+    }
+    
     playTrack(nextIndex);
   };
 
   const playPrev = () => {
     if (files.length === 0) return;
-    const prevIndex =
-      currentTrackIndex <= 0 ? files.length - 1 : currentTrackIndex - 1;
+    
+    // สำหรับปุ่มย้อนกลับ ปกติถ้าเปิด shuffle อาจจะสุ่มใหม่ หรือถอยหลังไปเพลงก่อนหน้าจริงๆ 
+    // เพื่อความเรียบง่าย เราจะให้ย้อนกลับตามลำดับ index ปกติ แม้จะเปิด Shuffle อยู่
+    const prevIndex = currentTrackIndex <= 0 ? files.length - 1 : currentTrackIndex - 1;
     playTrack(prevIndex);
   };
 
@@ -156,7 +159,7 @@ export default function App() {
   };
 
   const formatTime = (seconds) => {
-    if (isNaN(seconds)) return '0:00';
+    if (isNaN(seconds)) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
@@ -164,6 +167,10 @@ export default function App() {
 
   const getStreamUrl = (fileId) => {
     return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
+  };
+
+  const toggleShuffle = () => {
+    setIsShuffle(!isShuffle);
   };
 
   return (
@@ -187,9 +194,8 @@ export default function App() {
               <KeyRound className="text-yellow-400" /> ตั้งค่า API Key
             </h2>
             <p className="text-sm text-neutral-300 mb-4 leading-relaxed">
-              เพื่อดึงเพลงจาก Google Drive คุณต้องใส่ Google Drive API Key
-              ของคุณ และอย่าลืมตั้งค่าโฟลเดอร์ให้เป็น{' '}
-              <strong>"ทุกคนที่มีลิงก์ (Anyone with the link)"</strong>
+              เพื่อดึงเพลงจาก Google Drive คุณต้องใส่ Google Drive API Key ของคุณ
+              และอย่าลืมตั้งค่าโฟลเดอร์ให้เป็น <strong>"ทุกคนที่มีลิงก์ (Anyone with the link)"</strong>
             </p>
             <input
               type="text"
@@ -210,10 +216,7 @@ export default function App() {
           <div className="flex flex-col h-full">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">รายการเพลงของคุณ</h2>
-              <button
-                onClick={clearApiKey}
-                className="text-xs text-neutral-400 hover:text-white underline"
-              >
+              <button onClick={clearApiKey} className="text-xs text-neutral-400 hover:text-white underline">
                 เปลี่ยน API Key
               </button>
             </div>
@@ -245,37 +248,19 @@ export default function App() {
                   key={file.id}
                   onClick={() => playTrack(index)}
                   className={`w-full text-left p-4 rounded-xl flex items-center gap-4 transition-all ${
-                    currentTrackIndex === index
-                      ? 'bg-green-500/20 border border-green-500/30'
+                    currentTrackIndex === index 
+                      ? 'bg-green-500/20 border border-green-500/30' 
                       : 'bg-neutral-800 hover:bg-neutral-700 border border-transparent'
                   }`}
                 >
-                  <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                      currentTrackIndex === index
-                        ? 'bg-green-500 text-black'
-                        : 'bg-neutral-700 text-neutral-400'
-                    }`}
-                  >
-                    {currentTrackIndex === index && isPlaying ? (
-                      <Loader2 size={18} className="animate-spin" />
-                    ) : (
-                      <Music size={18} />
-                    )}
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${currentTrackIndex === index ? 'bg-green-500 text-black' : 'bg-neutral-700 text-neutral-400'}`}>
+                    {currentTrackIndex === index && isPlaying ? <Loader2 size={18} className="animate-spin" /> : <Music size={18} />}
                   </div>
                   <div className="overflow-hidden">
-                    <p
-                      className={`font-medium truncate ${
-                        currentTrackIndex === index
-                          ? 'text-green-400'
-                          : 'text-white'
-                      }`}
-                    >
+                    <p className={`font-medium truncate ${currentTrackIndex === index ? 'text-green-400' : 'text-white'}`}>
                       {file.name.replace(/\.mp3$/i, '')}
                     </p>
-                    <p className="text-xs text-neutral-500 truncate mt-1">
-                      Google Drive Audio
-                    </p>
+                    <p className="text-xs text-neutral-500 truncate mt-1">Google Drive Audio</p>
                   </div>
                 </button>
               ))}
@@ -315,35 +300,32 @@ export default function App() {
             <div className="flex items-center justify-between px-4">
               <div className="w-1/3 truncate">
                 <p className="text-sm font-semibold text-white truncate">
-                  {currentTrackIndex >= 0
-                    ? files[currentTrackIndex].name.replace(/\.mp3$/i, '')
-                    : 'เลือกเพลง...'}
+                  {currentTrackIndex >= 0 ? files[currentTrackIndex].name.replace(/\.mp3$/i, '') : 'เลือกเพลง...'}
                 </p>
               </div>
-              <div className="flex items-center gap-6 justify-center w-1/3">
-                <button
-                  onClick={playPrev}
-                  className="text-neutral-400 hover:text-white transition-colors"
+              
+              <div className="flex items-center gap-4 justify-center w-1/3">
+                <button 
+                  onClick={toggleShuffle} 
+                  className={`transition-colors p-2 rounded-full ${isShuffle ? 'text-green-500 bg-green-500/10' : 'text-neutral-400 hover:text-white'}`}
+                  title="สุ่มเพลง"
                 >
+                  <Shuffle size={20} />
+                </button>
+                <button onClick={playPrev} className="text-neutral-400 hover:text-white transition-colors">
                   <SkipBack size={24} fill="currentColor" />
                 </button>
-                <button
-                  onClick={togglePlay}
-                  className="w-14 h-14 bg-green-500 hover:bg-green-400 text-black rounded-full flex items-center justify-center transition-transform hover:scale-105"
+                <button 
+                  onClick={togglePlay} 
+                  className="w-14 h-14 bg-green-500 hover:bg-green-400 text-black rounded-full flex items-center justify-center transition-transform hover:scale-105 shrink-0"
                 >
-                  {isPlaying ? (
-                    <Pause size={28} fill="currentColor" />
-                  ) : (
-                    <Play size={28} fill="currentColor" className="ml-1" />
-                  )}
+                  {isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
                 </button>
-                <button
-                  onClick={playNext}
-                  className="text-neutral-400 hover:text-white transition-colors"
-                >
+                <button onClick={playNext} className="text-neutral-400 hover:text-white transition-colors">
                   <SkipForward size={24} fill="currentColor" />
                 </button>
               </div>
+
               <div className="w-1/3"></div> {/* Spacer for balance */}
             </div>
           </div>
@@ -351,9 +333,7 @@ export default function App() {
       )}
 
       {/* Basic Styles for Range Slider Customization */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
+      <style dangerouslySetInnerHTML={{__html: `
         input[type=range]::-webkit-slider-thumb {
           appearance: none;
           width: 12px;
@@ -366,9 +346,7 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; }
-      `,
-        }}
-      />
+      `}} />
     </div>
   );
 }
